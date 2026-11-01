@@ -1,0 +1,6 @@
+data.db*
+config.json
+CREDENTIALS.txt
+*.log
+node_modules
+cloudflared
