@@ -3,7 +3,7 @@
 const fs=require('fs'),crypto=require('crypto'),path=require('path');const {DatabaseSync}=require('node:sqlite');
 const D=process.env.DATA_DIR||__dirname;fs.mkdirSync(D,{recursive:true});const cp=path.join(D,'config.json');
 if(!fs.existsSync(cp))fs.writeFileSync(cp,JSON.stringify({company:{name:'Example Epoxy Co.',phone:'(555) 010-0000',email:'office@example-epoxy.test',address:'123 Example St, Anytown'},
- meta_verify_token:process.env.META_VERIFY_TOKEN||crypto.randomBytes(12).toString('hex'),meta_app_secret:'',meta_page_access_token:'',
+ meta_verify_token:'',meta_app_secret:'',meta_page_access_token:'',
  twilio:{account_sid:'',auth_token:'',from_number:'',_note:'Placeholder for future SMS integration - not used in v1'},
  coating_systems:[{name:'Full Flake System',price:6.5},{name:'Metallic Epoxy',price:9.5},{name:'Quartz Broadcast',price:8},{name:'Solid Color Epoxy',price:4.5},{name:'Polyaspartic Clear Topcoat',price:3}],
  addons:[{name:'Crack Repair (per lin ft)',price:8},{name:'Moisture Vapor Barrier (per sq ft)',price:1.5},{name:'Cove Base (per lin ft)',price:12},{name:'Stem Wall Coating (per lin ft)',price:6},{name:'Diamond Grinding Prep (per sq ft)',price:1},{name:'Old Coating Removal (per sq ft)',price:2}]},null,2));
@@ -11,7 +11,7 @@ try{fs.unlinkSync(path.join(D,'data.db'))}catch{}
 const db=new DatabaseSync(path.join(D,'data.db'));db.exec(fs.readFileSync(path.join(__dirname,'schema.sql'),'utf8'));
 const pw=process.env.ADMIN_PASSWORD||crypto.randomBytes(6).toString('base64url');const salt=crypto.randomBytes(8).toString('hex');
 const un=process.env.ADMIN_USERNAME||'admin';db.prepare('INSERT INTO users(username,name,salt,hash) VALUES(?,?,?,?)').run(un,'Admin',salt,crypto.scryptSync(pw,salt,32).toString('hex'));
-fs.writeFileSync(path.join(D,'CREDENTIALS.txt'),`Epoxy CRM login\nusername: ${un}\npassword: ${process.env.ADMIN_PASSWORD?'(set via ADMIN_PASSWORD env var)':pw}\n\nMeta webhook verify token: ${JSON.parse(fs.readFileSync(cp)).meta_verify_token}\n`,{mode:0o600});
+fs.writeFileSync(path.join(D,'CREDENTIALS.txt'),`Epoxy CRM login\nusername: ${un}\npassword: ${process.env.ADMIN_PASSWORD?'(set via ADMIN_PASSWORD env var)':pw}\n\nMeta webhook reads META_VERIFY_TOKEN, META_APP_SECRET, and META_PAGE_ACCESS_TOKEN from the environment.\n`,{mode:0o600});
 if(process.env.SEED_EXAMPLE==='0'){console.log('Initialized (no example data)');db.close();return;}
 const day=n=>new Date(Date.now()+n*864e5).toISOString().slice(0,10),ts=n=>new Date(Date.now()+n*864e5).toISOString();
 const ins=(t,o)=>{const k=Object.keys(o);return db.prepare(`INSERT INTO ${t}(${k})VALUES(${k.map(()=>'?')})`).run(...Object.values(o)).lastInsertRowid;};
