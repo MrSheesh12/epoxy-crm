@@ -32,28 +32,52 @@ function decorate(t,r){if(!r)return r;
 function body(req){return new Promise(res=>{let d='';req.on('data',c=>d+=c);req.on('end',()=>{try{res(d?JSON.parse(d):{})}catch{res({_raw:d})}})});}
 function send(res,code,obj,type='application/json'){res.writeHead(code,{'Content-Type':type});res.end(type==='application/json'?JSON.stringify(obj):obj);}
 function cookie(req,n){const m=(req.headers.cookie||'').match(new RegExp('(?:^|; )'+n+'=([^;]+)'));return m&&m[1];}
+const META_VARS=['META_VERIFY_TOKEN','META_APP_SECRET','META_PAGE_ACCESS_TOKEN'];
+function metaEnv(name){return String(process.env[name]||'').trim();}
+function metaMissing(){return META_VARS.filter(name=>!metaEnv(name));}
+function logMetaClosed(missing){console.error('Meta webhook fail-closed: missing '+missing.join(', ')+'. Refusing unverified webhook traffic.');}
+const metaMissingAtBoot=metaMissing();if(metaMissingAtBoot.length)logMetaClosed(metaMissingAtBoot);
+function safeEq(a,b){const x=Buffer.from(String(a)),y=Buffer.from(String(b));if(x.length!==y.length)return false;return crypto.timingSafeEqual(x,y);}
+function verifyMetaSig(raw,header,secret){const sig=Array.isArray(header)?'':String(header||'');const m=/^sha256=([0-9a-fA-F]{64})$/.exec(sig);if(!m)return false;const expected=crypto.createHmac('sha256',secret).update(raw).digest();const given=Buffer.from(m[1],'hex');return given.length===expected.length&&crypto.timingSafeEqual(given,expected);}
+function rawBody(req){return new Promise((resolve,reject)=>{const chunks=[];let n=0,done=false;req.on('data',c=>{if(done)return;n+=c.length;if(n>1e6){done=true;req.pause();reject(Object.assign(new Error('payload too large'),{status:413}));}else chunks.push(Buffer.from(c));});req.on('end',()=>{if(!done)resolve(Buffer.concat(chunks));});req.on('error',e=>{if(!done){done=true;reject(e);}});});}
 function leadFromMeta(fields,meta){const f={};for(const x of fields||[])f[(x.name||'').toLowerCase()]=(x.values||[])[0];
  const name=f.full_name||[f.first_name,f.last_name].filter(Boolean).join(' ')||'Meta Lead';
- const r=run(`INSERT INTO leads(name,phone,email,address,source,status,project_type,sq_ft,notes,meta_lead_id,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
+ try{const r=run(`INSERT INTO leads(name,phone,email,address,source,status,project_type,sq_ft,notes,meta_lead_id,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
   name,f.phone_number||f.phone||'',f.email||'',[f.street_address,f.city,f.zip_code].filter(Boolean).join(', '),'Meta Ads','New',f.project_type||f['what_type_of_project?']||'',+(f.sq_ft||f.square_feet||0)||null,
   'Meta form '+(meta.form_id||'')+' ad '+(meta.ad_id||''),meta.leadgen_id||null,now());
- log(null,r.lastInsertRowid,'lead','Lead received from Meta Lead Ads');return r.lastInsertRowid;}
-async function fetchMetaLead(id){if(!cfg.meta_page_access_token)return null;
- try{const r=await fetch(`https://graph.facebook.com/v21.0/${id}?access_token=${cfg.meta_page_access_token}`);return await r.json();}catch{return null;}}
+  log(null,r.lastInsertRowid,'lead','Lead received from Meta Lead Ads');return r.lastInsertRowid;}
+ catch(e){if(meta.leadgen_id&&String(e.message||'').includes('UNIQUE')&&get('SELECT id FROM leads WHERE meta_lead_id=?',String(meta.leadgen_id)))return null;throw e;}}
+function redactMeta(msg){return String(msg||'error').replace(/access_token=[^&\s]+/gi,'access_token=(redacted)');}
+async function fetchMetaLead(id){const token=metaEnv('META_PAGE_ACCESS_TOKEN');if(!token)return null;
+ const url=new URL('https://graph.facebook.com/v25.0/'+encodeURIComponent(id));
+ url.searchParams.set('fields','created_time,id,ad_id,form_id,field_data');
+ url.searchParams.set('access_token',token);
+ try{const r=await fetch(url,{signal:AbortSignal.timeout(10000)});const data=await r.json().catch(()=>null);
+  if(!r.ok||!data||data.error||!Array.isArray(data.field_data)){const why=data&&data.error?(data.error.message||data.error.type||'graph error'):('HTTP '+r.status);console.error('Meta Graph field_data fetch failed for leadgen_id '+id+': '+redactMeta(why));return null;}
+  return data;}
+ catch(e){console.error('Meta Graph field_data fetch failed for leadgen_id '+id+': '+redactMeta(e&&e.message));return null;}}
 
 http.createServer(async(req,res)=>{try{
  const u=new URL(req.url,'http://x'),p=u.pathname,M=req.method;
  // ---- Meta webhook (public) ----
  if(p==='/api/webhooks/meta-leads'){
-  if(M==='GET'){if(u.searchParams.get('hub.mode')==='subscribe'&&u.searchParams.get('hub.verify_token')===cfg.meta_verify_token)return send(res,200,u.searchParams.get('hub.challenge')||'','text/plain');return send(res,403,'forbidden','text/plain');}
-  if(M==='POST'){const raw=await new Promise(r=>{let d='';req.on('data',c=>d+=c);req.on('end',()=>r(d))});
-   if(cfg.meta_app_secret){const sig=req.headers['x-hub-signature-256']||'';const exp='sha256='+crypto.createHmac('sha256',cfg.meta_app_secret).update(raw).digest('hex');if(sig!==exp)return send(res,401,{error:'bad signature'});}
-   let b;try{b=JSON.parse(raw)}catch{return send(res,400,{error:'bad json'})}
-   const ids=[];
-   for(const e of b.entry||[])for(const c of e.changes||[]){const v=c.value||{};
-    if(v.leadgen_id&&get('SELECT id FROM leads WHERE meta_lead_id=?',String(v.leadgen_id)))continue;
-    let fields=v.field_data;if(!fields&&v.leadgen_id){const d=await fetchMetaLead(v.leadgen_id);fields=d&&d.field_data;}
-    ids.push(leadFromMeta(fields,{...v,leadgen_id:v.leadgen_id&&String(v.leadgen_id)}));}
+  if(M==='GET'){const missing=metaMissing();if(missing.length){logMetaClosed(missing);return send(res,403,'forbidden','text/plain');}
+   const mode=u.searchParams.get('hub.mode')||'',token=u.searchParams.get('hub.verify_token')||'',challenge=u.searchParams.get('hub.challenge');
+   if(mode==='subscribe'&&challenge!==null&&safeEq(token,metaEnv('META_VERIFY_TOKEN')))return send(res,200,challenge,'text/plain');
+   return send(res,403,'forbidden','text/plain');}
+  if(M==='POST'){let raw;try{raw=await rawBody(req);}catch(e){return send(res,e.status||400,{error:e.status===413?'payload too large':'bad body'});}
+   const missing=metaMissing();if(missing.length){logMetaClosed(missing);return send(res,403,'forbidden','text/plain');}
+   if(!verifyMetaSig(raw,req.headers['x-hub-signature-256'],metaEnv('META_APP_SECRET')))return send(res,401,{error:'bad signature'});
+   let b;try{b=JSON.parse(raw.toString('utf8'));}catch{return send(res,400,{error:'bad json'});}
+   const ids=[];let failed=false;
+   for(const ent of b.entry||[])for(const c of ent.changes||[]){if(c.field&&c.field!=='leadgen')continue;const v=c.value||{};
+    const leadgenId=v.leadgen_id!=null&&String(v.leadgen_id)!==''?String(v.leadgen_id):'';
+    if(!leadgenId)continue;
+    if(get('SELECT id FROM leads WHERE meta_lead_id=?',leadgenId))continue;
+    let fields=null;const d=await fetchMetaLead(leadgenId);if(d&&Array.isArray(d.field_data))fields=d.field_data;else if(Array.isArray(v.field_data))fields=v.field_data;
+    if(!Array.isArray(fields)){failed=true;console.error('Meta webhook: no field_data for leadgen_id '+leadgenId);continue;}
+    const id=leadFromMeta(fields,{...v,leadgen_id:leadgenId});if(id)ids.push(id);}
+   if(failed)return send(res,502,{error:'lead fetch failed',created:ids});
    return send(res,200,{ok:true,created:ids});}
  }
  // ---- auth ----

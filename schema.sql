@@ -2,6 +2,7 @@ CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY,username TEXT UNIQUE,nam
 CREATE TABLE IF NOT EXISTS sessions(token TEXT PRIMARY KEY,user_id INTEGER,created_at TEXT);
 CREATE TABLE IF NOT EXISTS customers(id INTEGER PRIMARY KEY,name TEXT,phone TEXT,email TEXT,address TEXT,city TEXT,notes TEXT,sms_opt_in INTEGER DEFAULT 0,created_at TEXT);
 CREATE TABLE IF NOT EXISTS leads(id INTEGER PRIMARY KEY,customer_id INTEGER,name TEXT,phone TEXT,email TEXT,address TEXT,source TEXT DEFAULT 'Manual',status TEXT DEFAULT 'New',project_type TEXT,sq_ft REAL,notes TEXT,meta_lead_id TEXT,created_at TEXT);
+CREATE UNIQUE INDEX IF NOT EXISTS leads_meta_lead_id ON leads(meta_lead_id) WHERE meta_lead_id IS NOT NULL AND meta_lead_id <> '';
 CREATE TABLE IF NOT EXISTS activities(id INTEGER PRIMARY KEY,customer_id INTEGER,lead_id INTEGER,type TEXT,text TEXT,created_at TEXT);
 CREATE TABLE IF NOT EXISTS quotes(id INTEGER PRIMARY KEY,customer_id INTEGER,lead_id INTEGER,title TEXT,status TEXT DEFAULT 'Draft',items TEXT DEFAULT '[]',tax_rate REAL DEFAULT 0,discount REAL DEFAULT 0,notes TEXT,valid_until TEXT,created_at TEXT);
 CREATE TABLE IF NOT EXISTS crews(id INTEGER PRIMARY KEY,name TEXT,members TEXT,color TEXT,created_at TEXT);
