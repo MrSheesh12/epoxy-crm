@@ -1,7 +1,41 @@
-<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Epoxy CRM</title><link rel="stylesheet" href="/app.css"></head><body>
-<div id="login" class="hidden"><form id="lf" class="card loginbox"><h1>🧪 Epoxy CRM</h1><input name="username" placeholder="Username" autocomplete="username"><input name="password" type="password" placeholder="Password" autocomplete="current-password"><button>Sign in</button><p id="lerr" class="err"></p></form></div>
-<div id="app" class="hidden"><nav id="nav"><div class="brand">🧪 Epoxy CRM</div>
-<a href="#/">Dashboard</a><a href="#/leads">Leads</a><a href="#/customers">Customers</a><a href="#/quotes">Quotes</a><a href="#/jobs">Schedule</a><a href="#/invoices">Invoices</a><a href="#/crews">Crews</a><a href="#" id="logout">Log out</a></nav>
-<main id="main"></main></div><div id="modal" class="hidden"><div class="mbox card"></div></div>
-<script src="/app.js"></script></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#111827">
+<title>Epoxy CRM</title>
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<div id="login" class="hidden">
+<form id="lf" class="card loginbox">
+<h1>🧪 Epoxy CRM</h1>
+<label for="lu">Username</label>
+<input id="lu" name="username" placeholder="Username" autocomplete="username">
+<label for="lp">Password</label>
+<input id="lp" name="password" type="password" placeholder="Password" autocomplete="current-password">
+<button>Sign in</button>
+<p id="lerr" class="err"></p>
+</form>
+</div>
+<div id="app" class="hidden">
+<nav id="nav">
+<div class="brand">🧪 Epoxy CRM</div>
+<div class="nav-links">
+<a href="#/">Dashboard</a>
+<a href="#/leads">Leads</a>
+<a href="#/customers">Customers</a>
+<a href="#/quotes">Quotes</a>
+<a href="#/jobs">Schedule</a>
+<a href="#/invoices">Invoices</a>
+<a href="#/crews">Crews</a>
+<a href="#" id="logout">Log out</a>
+</div>
+</nav>
+<main id="main"></main>
+</div>
+<div id="modal" class="hidden" role="dialog" aria-modal="true"><div class="mbox card"></div></div>
+<script src="/app.js"></script>
+</body>
+</html>
