@@ -1,0 +1,13 @@
+---
+description: App Factory conventions for every agent in this repo
+alwaysApply: true
+---
+
+# App Factory rules
+
+- Follow `AGENTS.md` for role routing and stack defaults.
+- Free Render plan only; ask the user before any paid plan, disk, or add-on.
+- Never write secrets into the repo. Use env vars / Render dashboard secrets.
+- Prefer editing existing patterns over introducing new frameworks.
+- Keep PRs focused; include a short test plan in the PR body.
+- When adding SQLite on free Render, document that data is ephemeral.
