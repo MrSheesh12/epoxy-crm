@@ -13,7 +13,7 @@ function pillStyle(hex){let c=/^#[0-9a-fA-F]{6}$/.test(hex||'')?hex:'#4b5563';
  while((1.05)/(lum(r,g,b)+0.05)<4.5&&i++<8){r=Math.max(0,Math.round(r*.86));g=Math.max(0,Math.round(g*.86));b=Math.max(0,Math.round(b*.86));}
  return `background:#${[r,g,b].map(n=>n.toString(16).padStart(2,'0')).join('')};color:#fff`;}
 async function api(p,m='GET',b){const r=await fetch('/api/'+p,{method:m,headers:{'Content-Type':'application/json'},body:b?JSON.stringify(b):undefined});if(r.status===401){showLogin();throw 'auth'}const j=await r.json();if(!r.ok){const msg=j.error||'Error';if((m||'GET')!=='GET')alert(msg);throw new Error(msg);}return j;}
-let S={};const STAGES=['New','Contacted','Quoted','Won','Lost'],SOURCES=['Meta Ads','Google','Website','Referral','Yard Sign','Repeat Customer','Manual','Other'];
+let S={},backupFlash='';const STAGES=['New','Contacted','Quoted','Won','Lost'],SOURCES=['Meta Ads','Google','Website','Referral','Yard Sign','Repeat Customer','Manual','Other'];
 const JOBST=['Scheduled','In Progress','Completed','On Hold','Cancelled'],QST=['Draft','Sent','Accepted','Declined'];
 function showLogin(){$('#app').classList.add('hidden');$('#login').classList.remove('hidden');document.body.classList.remove('modal-open');}
 $('#lf').onsubmit=async e=>{e.preventDefault();$('#lerr').textContent='';const f=new FormData(e.target);const btn=e.target.querySelector('button');btn.disabled=true;try{const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.fromEntries(f))});if(!r.ok){$('#lerr').textContent='Invalid username or password';return}start();}finally{btn.disabled=false;}};
@@ -32,7 +32,7 @@ async function route(){const h=location.hash.slice(1)||'/';const [_,pg,id,sub]=h
  markNav(pg);closeM();
  main.innerHTML='<div class="loading" role="status" aria-live="polite">Loading…</div>';
  main.setAttribute('aria-busy','true');
- try{await(({'':dash,leads,customers:id?customer:customersList,quotes:id?(sub==='print'?quotePrint:quoteEdit):quotesList,jobs,invoices:id?(sub==='print'?invPrint:invoice):invoicesList,crews})[pg||'']||dash)(id);}
+ try{await(({'':dash,leads,customers:id?customer:customersList,quotes:id?(sub==='print'?quotePrint:quoteEdit):quotesList,jobs,invoices:id?(sub==='print'?invPrint:invoice):invoicesList,crews,settings:settingsPage})[pg||'']||dash)(id);}
  catch(e){if(e!=='auth'){console.error(e);main.innerHTML=`${emptyState('Could not load this page','Check your connection, then try again.')}<div class="tools" style="justify-content:center"><button type="button" onclick="route()">Try again</button></div>`;}}
  finally{main.removeAttribute('aria-busy');}}
 // ---------- Dashboard
@@ -161,4 +161,25 @@ async function crews(){const cs=await api('crews');
  main.innerHTML=`<div class="bar"><h1>Crews</h1></div><div class="card">${table}
  <div class="row fields" style="margin-top:12px"><input id="ncn" placeholder="Crew name" aria-label="New crew name"><input id="ncm" placeholder="Members" aria-label="New crew members"><button type="button" onclick="addCrew()">+ Add crew</button></div></div>`;}
 async function addCrew(){const name=$('#ncn').value.trim();if(!name){$('#ncn').focus();return;}await api('crews','POST',{name,members:$('#ncm').value.trim(),color:'#'+Math.floor(Math.random()*0x888888).toString(16).padStart(6,'0')});route();}
+// ---------- Settings
+const META_NAMES=['META_VERIFY_TOKEN','META_APP_SECRET','META_PAGE_ACCESS_TOKEN'];
+async function settingsPage(){const st=await api('settings/meta-status');const note=backupFlash;backupFlash='';
+ const rows=META_NAMES.map(name=>{const on=st[name]===true;return `<div class="meta-row"><code>${esc(name)}</code><span class="badge ${on?'b-Accepted':'b-Lost'}">${on?'Present':'Missing'}</span></div>`;}).join('');
+ main.innerHTML=`<h1>Settings</h1>
+ <div class="card"><h2>Meta Lead Ads</h2><p class="muted">Whether each environment variable is set. Values are never shown.</p><div class="meta-list">${rows}</div></div>
+ <div class="card"><h2>Database backup</h2><p class="muted">Export downloads a copy of the SQLite database. Import replaces the current database with that file.</p>
+ <div class="tools"><button type="button" id="export-db" onclick="exportBackup()">Export database</button><button type="button" class="danger" id="import-db" onclick="$('#import-file').click()">Import database</button><input id="import-file" class="hidden" type="file" accept=".db,application/octet-stream,application/vnd.sqlite3" aria-label="Backup file"></div>
+ <p id="bak-msg" class="muted" role="status">${esc(note)}</p></div>`;
+ $('#import-file').onchange=()=>importBackup();}
+async function exportBackup(){const msg=$('#bak-msg'),btn=$('#export-db');if(btn)btn.disabled=true;if(msg)msg.textContent='Preparing download…';
+ try{const r=await fetch('/api/backup/export');if(r.status===401){showLogin();return;}if(!r.ok){const j=await r.json().catch(()=>({}));if(msg)msg.textContent=j.error||'Export failed';return;}
+  const blob=await r.blob();const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='epoxy-crm-backup.db';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),1500);if(msg)msg.textContent='Download started.';}
+ catch{if(msg)msg.textContent='Export failed';}finally{if(btn)btn.disabled=false;}}
+async function importBackup(){const input=$('#import-file');const file=input&&input.files&&input.files[0];if(input)input.value='';if(!file)return;
+ if(!confirm('Replace the current database with this backup? Current quotes, jobs, and logins will be overwritten.'))return;
+ const msg=$('#bak-msg'),btn=$('#import-db');if(btn)btn.disabled=true;if(msg)msg.textContent='Restoring…';
+ try{const r=await fetch('/api/backup/import',{method:'POST',headers:{'Content-Type':'application/octet-stream'},body:file});if(r.status===401){showLogin();return;}
+  const j=await r.json().catch(()=>({}));if(!r.ok){if(msg)msg.textContent=j.error||'Import failed';return;}
+  backupFlash='Database restored.';try{S=await api('settings');}catch(e){if(e==='auth')return;}route();}
+ catch(e){if(e!=='auth'&&msg)msg.textContent='Import failed';}finally{if(btn)btn.disabled=false;}}
 start();

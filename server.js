@@ -1,13 +1,14 @@
 // Epoxy CRM v1 — zero-dependency Node (>=22.5) server using built-in node:sqlite
-const http=require('http'),fs=require('fs'),path=require('path'),crypto=require('crypto');
+const http=require('http'),fs=require('fs'),path=require('path'),crypto=require('crypto'),os=require('os');
 const {DatabaseSync}=require('node:sqlite');
 const PORT=process.env.PORT||3100, DIR=__dirname, DATA=process.env.DATA_DIR||__dirname;
 if(!fs.existsSync(path.join(DATA,'data.db')))require('./seed.js'); // first boot: init DB (+ example data unless SEED_EXAMPLE=0)
 const cfg=JSON.parse(fs.readFileSync(path.join(DATA,'config.json'),'utf8'));
 for(const [k,e] of [['meta_verify_token','META_VERIFY_TOKEN'],['meta_app_secret','META_APP_SECRET'],['meta_page_access_token','META_PAGE_ACCESS_TOKEN']])if(process.env[e])cfg[k]=process.env[e];
 if(process.env.COMPANY_NAME)cfg.company.name=process.env.COMPANY_NAME;
-const db=new DatabaseSync(path.join(DATA,'data.db'));
-db.exec(fs.readFileSync(path.join(DIR,'schema.sql'),'utf8'));
+let db;
+function openDb(){db=new DatabaseSync(path.join(DATA,'data.db'));db.exec(fs.readFileSync(path.join(DIR,'schema.sql'),'utf8'));}
+openDb();
 const now=()=>new Date().toISOString();
 const hash=(p,s)=>crypto.scryptSync(p,s,32).toString('hex');
 const all=(q,...a)=>db.prepare(q).all(...a), get=(q,...a)=>db.prepare(q).get(...a), run=(q,...a)=>db.prepare(q).run(...a);
@@ -56,6 +57,20 @@ async function fetchMetaLead(id){const token=metaEnv('META_PAGE_ACCESS_TOKEN');i
   if(!r.ok||!data||data.error||!Array.isArray(data.field_data)){const why=data&&data.error?(data.error.message||data.error.type||'graph error'):('HTTP '+r.status);console.error('Meta Graph field_data fetch failed for leadgen_id '+id+': '+redactMeta(why));return null;}
   return data;}
  catch(e){console.error('Meta Graph field_data fetch failed for leadgen_id '+id+': '+redactMeta(e&&e.message));return null;}}
+
+const MAX_BACKUP=32*1024*1024;
+function readRaw(req,limit){return new Promise((resolve,reject)=>{const chunks=[];let n=0,done=false;req.on('data',c=>{if(done)return;n+=c.length;if(n>limit){done=true;req.pause();reject(Object.assign(new Error('payload too large'),{status:413}));}else chunks.push(Buffer.from(c));});req.on('end',()=>{if(!done)resolve(Buffer.concat(chunks));});req.on('error',e=>{if(!done){done=true;reject(e);}});});}
+function isSqlite(buf){return Buffer.isBuffer(buf)&&buf.length>=16&&buf.subarray(0,16).equals(Buffer.from('SQLite format 3\0'));}
+function safeDbPath(prefix){const file=path.join(os.tmpdir(),prefix+'-'+crypto.randomBytes(8).toString('hex')+'.db');if(!/^[A-Za-z0-9_./-]+$/.test(file))throw new Error('bad temp path');return file;}
+function validateBackup(file){let incoming;try{incoming=new DatabaseSync(file,{readOnly:true});}catch{throw Object.assign(new Error('not a sqlite database'),{status:400});}
+ try{const rows=incoming.prepare('PRAGMA integrity_check').all();if(rows.length!==1||rows[0].integrity_check!=='ok')throw Object.assign(new Error('backup failed integrity check'),{status:400});
+  for(const table of ['users','sessions','customers','quotes','jobs']){if(!incoming.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table))throw Object.assign(new Error('backup is missing required tables'),{status:400});}
+  incoming.prepare('SELECT id,username FROM users LIMIT 1').get();incoming.prepare('SELECT id,title FROM quotes LIMIT 1').get();incoming.prepare('SELECT id,title FROM jobs LIMIT 1').get();}
+ finally{incoming.close();}}
+function replaceDb(file){const live=path.join(DATA,'data.db'),bak=live+'.pre-import';try{db.exec('PRAGMA wal_checkpoint(TRUNCATE)');}catch{}
+ db.close();db=null;let swapped=false;
+ try{fs.copyFileSync(live,bak);for(const suf of ['-wal','-shm'])fs.rmSync(live+suf,{force:true});fs.copyFileSync(file,live);swapped=true;openDb();fs.rmSync(bak,{force:true});}
+ catch(e){try{if(swapped&&fs.existsSync(bak))fs.copyFileSync(bak,live);for(const suf of ['-wal','-shm'])fs.rmSync(live+suf,{force:true});if(!db)openDb();}catch{console.error('backup import rollback failed');}throw e;}}
 
 http.createServer(async(req,res)=>{try{
  const u=new URL(req.url,'http://x'),p=u.pathname,M=req.method;
@@ -119,6 +134,12 @@ http.createServer(async(req,res)=>{try{
   if(p==='/api/activities'&&M==='POST'){const b=await body(req);log(b.customer_id,b.lead_id,b.type||'note',b.text);return send(res,200,{ok:true});}
   if(p==='/api/activities'){const lid=u.searchParams.get('lead_id');return send(res,200,all('SELECT * FROM activities WHERE lead_id=? ORDER BY created_at DESC',lid));}
   if(p==='/api/settings')return send(res,200,{coating_systems:cfg.coating_systems,addons:cfg.addons,company:cfg.company});
+  if(p==='/api/settings/meta-status'&&M==='GET'){const status={};for(const name of META_VARS)status[name]=metaEnv(name).length>0;return send(res,200,status);}
+  if(p==='/api/backup/export'&&M==='GET'){const tmp=safeDbPath('epoxy-export');try{db.exec("VACUUM INTO '"+tmp+"'");const st=fs.statSync(tmp);res.writeHead(200,{'Content-Type':'application/octet-stream','Content-Disposition':'attachment; filename="epoxy-crm-backup.db"','Content-Length':st.size,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});const stream=fs.createReadStream(tmp);const cleanup=()=>fs.rmSync(tmp,{force:true});stream.on('close',cleanup);stream.on('error',()=>{cleanup();res.destroy();});stream.pipe(res);return;}catch(e){fs.rmSync(tmp,{force:true});throw e;}}
+  if(p==='/api/backup/import'&&M==='POST'){const tmp=safeDbPath('epoxy-import');try{let raw;try{raw=await readRaw(req,MAX_BACKUP);}catch(e){return send(res,e.status||400,{error:e.status===413?'payload too large':'bad body'});}
+   if(!isSqlite(raw))return send(res,400,{error:'not a sqlite database'});fs.writeFileSync(tmp,raw);validateBackup(tmp);replaceDb(tmp);return send(res,200,{ok:true});}
+   catch(e){if(e.status!==400&&e.status!==413)console.error('backup import failed');return send(res,e.status===400?400:e.status===413?413:500,{error:e.status===400?(e.message||'bad backup'):e.status===413?'payload too large':'import failed'});}
+   finally{fs.rmSync(tmp,{force:true});}}
   // generic CRUD
   if((m=p.match(/^\/api\/(\w+)(?:\/(\d+))?$/))&&T[m[1]]){const t=m[1],id=m[2],cols=T[t];
    if(M==='GET'&&!id){let q=`SELECT * FROM ${t}`,a=[];const f=u.searchParams.get('customer_id');if(f){q+=' WHERE customer_id=?';a.push(f);}

@@ -40,11 +40,25 @@ A lead `POST` must be signed with `META_APP_SECRET` over the exact raw JSON body
 ## SMS texting (planned – not in v1)
 Placeholders: `sms_messages` table (direction, to/from, body, status, twilio_sid), `customers.sms_opt_in`, and `twilio` block in config.json. Plan: Twilio number → `POST /api/sms/send` from customer/lead pages, inbound webhook `/api/webhooks/twilio` to log replies into `sms_messages` + activity history, A2P 10DLC registration required for US business texting.
 
+## Settings and backup
+After sign-in, a banner stays on every screen: on the free Render plan, SQLite under `/tmp/epoxy-data` (or `DATA_DIR`) is removed on spin-down and redeploy. Open **Settings** (`#/settings`) to see whether `META_VERIFY_TOKEN`, `META_APP_SECRET`, and `META_PAGE_ACCESS_TOKEN` are set. The page reports present or missing for those names only and never shows the values.
+
+**Export** downloads `data.db`. **Import** replaces the current database with that file (up to 32 MB). Both require the session cookie.
+
+```
+curl -c /tmp/epoxy-cj -H 'Content-Type: application/json' -d '{"username":"admin","password":"..."}' http://localhost:3100/api/login
+curl -b /tmp/epoxy-cj -o epoxy-crm-backup.db http://localhost:3100/api/backup/export
+curl -b /tmp/epoxy-cj -H 'Content-Type: application/octet-stream' --data-binary @epoxy-crm-backup.db http://localhost:3100/api/backup/import
+curl -b /tmp/epoxy-cj http://localhost:3100/api/settings/meta-status
+```
+
+Smoke check: `npm run test:backup`.
+
 ## Known gaps
-Single admin user (no roles/user management UI), no password reset, no email sending of quotes/invoices, PDF via browser print, no online card payments, no file/photo uploads, no backups configured (copy `data.db`).
+Single admin user (no roles/user management UI), no password reset, no email sending of quotes/invoices, PDF via browser print, no online card payments, no file/photo uploads. The free-plan database still resets on spin-down; use Settings to export a copy first.
 
 ## Configuration via env vars (for hosting)
 `PORT`, `DATA_DIR` (where data.db/config.json live; point at a persistent disk), `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `META_VERIFY_TOKEN`, `META_APP_SECRET`, `META_PAGE_ACCESS_TOKEN`, `COMPANY_NAME`, `SEED_EXAMPLE=0` (skip example data). On first boot with an empty DATA_DIR the DB is created automatically.
 
 ## Deploy to Render
-Push this folder to a GitHub repo (private is fine), then create a Web Service (or use `render.yaml` Blueprint): runtime Node, build `true`, start `node server.js`, env vars above. Free plan storage is ephemeral (data lost on redeploy/restart/spin-down after ~15 min idle). For persistence: Starter ($7/mo) + a persistent disk mounted at e.g. `/var/data` and `DATA_DIR=/var/data`.
+Push this folder to a GitHub repo (private is fine), then create a Web Service (or use `render.yaml` Blueprint): runtime Node, build `true`, start `node server.js`, env vars above. Free plan storage is ephemeral (data lost on redeploy/restart/spin-down after ~15 min idle). Export a backup from Settings before a redeploy, then import it after the next boot. For a durable disk: Starter ($7/mo) + a persistent disk mounted at e.g. `/var/data` and `DATA_DIR=/var/data`. This repo's Blueprint stays on `plan: free` and does not attach a disk.
