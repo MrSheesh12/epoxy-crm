@@ -5,12 +5,18 @@ body.modal-open{overflow:hidden}
 a{color:#1d4ed8}
 a:hover{text-decoration:none}
 #app{display:flex;min-height:100vh;min-width:0}
+.workspace{flex:1;min-width:0;max-width:1300px;display:flex;flex-direction:column}
+.data-banner{margin:16px 24px 0;padding:12px 14px;background:#fff7ed;color:#7c2d12;border:1px solid #c2410c;border-radius:10px;font-size:14px;line-height:1.45}
+.data-banner code{font-size:.92em;color:#7c2d12}
+.meta-list{display:flex;flex-direction:column}
+.meta-row{display:flex;justify-content:space-between;align-items:center;gap:8px 12px;flex-wrap:wrap;padding:10px 0;border-bottom:1px solid #e5e7eb}
+.meta-row code{font-size:13px;overflow-wrap:anywhere}
 nav{width:210px;background:#111827;color:#fff;padding:16px 10px;display:flex;flex-direction:column;gap:2px;position:sticky;top:0;height:100vh;flex-shrink:0}
 nav .brand{font-weight:700;font-size:18px;margin:0 8px 16px}
 nav .nav-links{display:flex;flex-direction:column;gap:2px;min-width:0}
 nav a{color:#e2e8f0;padding:9px 12px;border-radius:8px;text-decoration:none}
 nav a.on,nav a:hover{background:#1f2937;color:#fff}
-main{flex:1;padding:24px;max-width:1300px;min-width:0;overflow-x:auto}
+main{flex:1;padding:24px;min-width:0;overflow-x:auto}
 h1{margin:0 0 16px;font-size:24px;line-height:1.25;overflow-wrap:anywhere}
 .bar h1,.bar h2{margin:0}
 h2{font-size:17px;margin:0 0 10px;line-height:1.3;overflow-wrap:anywhere}
@@ -103,6 +109,8 @@ table.lines td .unit{width:80px}
 button:focus-visible,.btn:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid #1d4ed8;outline-offset:2px}
 @media(max-width:800px){
 #app{flex-direction:column}
+.workspace{width:100%;max-width:none}
+.data-banner{margin:12px 12px 0}
 nav{width:100%;height:auto;position:sticky;top:0;flex-direction:column;overflow:hidden;padding:8px 8px 6px;z-index:5;box-shadow:0 1px 0 #ffffff22}
 nav .brand{display:block;margin:2px 8px 6px;font-size:16px}
 nav .nav-links{flex-direction:row;overflow-x:auto;gap:4px;width:100%;-webkit-overflow-scrolling:touch;scrollbar-width:none;padding-bottom:2px}
@@ -146,6 +154,8 @@ table.lines td.actions-cell button{width:100%}
 }
 @media(max-width:480px){
 h1{font-size:22px}
+.data-banner{font-size:13px;margin:10px 12px 0}
+.meta-row{align-items:flex-start}
 .card{padding:14px}
 .bar{align-items:stretch}
 .bar:not(.calnav){flex-direction:column}
@@ -176,7 +186,7 @@ button.sm{min-height:40px;padding:8px 10px}
 .loading::before{animation:none}
 }
 @media print{
-nav,.noprint{display:none!important}
+nav,.noprint,.data-banner{display:none!important}
 main{padding:0;overflow:visible}
 body{background:#fff}
 .card{box-shadow:none}
